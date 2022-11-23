@@ -114,7 +114,7 @@ class _WriteToMySQLFn(beam.DoFn):
             columns.append(column)
             values.append(value)
 
-        column_str = ", ".join(columns)
+        column_str = "`" + "`, `".join(columns) + "`"
         value_str = ", ".join(
             [
                 f"{'NULL' if value is None else value}" if isinstance(value, (type(None), int, float)) else f"'{value}'"
