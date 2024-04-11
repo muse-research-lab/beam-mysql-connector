@@ -105,7 +105,7 @@ class _WriteToMySQLFn(beam.DoFn):
 
     def start_bundle(self):
         self._build_value()
-        self._queries = []
+        self._columns_and_values = dict()
 
     def process(self, element: Dict, *args, **kwargs):
         columns = []
@@ -114,7 +114,7 @@ class _WriteToMySQLFn(beam.DoFn):
             columns.append(column)
             values.append(value)
 
-        column_str = ", ".join(columns)
+        column_str = "`" + "`, `".join(columns) + "`"
         value_str = ", ".join(
             [
                 f"{'NULL' if value is None else value}" if isinstance(value, (type(None), int, float)) else f"'{value}'"
@@ -122,18 +122,24 @@ class _WriteToMySQLFn(beam.DoFn):
             ]
         )
 
-        query = f"INSERT INTO {self._config['database']}.{self._table}({column_str}) VALUES({value_str});"
+        if column_str not in self._columns_and_values:
+            self._columns_and_values[column_str] = []
 
-        self._queries.append(query)
+        self._columns_and_values[column_str].append(f"({value_str})")
 
-        if len(self._queries) > self._batch_size:
-            self._client.record_loader("\n".join(self._queries))
-            self._queries.clear()
+        if len(self._columns_and_values[column_str]) == self._batch_size:
+            q = self._build_query(column_str, self._columns_and_values[column_str])
+            self._client.record_loader(q)
+            self._columns_and_values[column_str].clear()
 
     def finish_bundle(self):
-        if len(self._queries):
-            self._client.record_loader("\n".join(self._queries))
-            self._queries.clear()
+        for column_str in self._columns_and_values.keys():
+            q = self._build_query(column_str, self._columns_and_values[column_str])
+            self._client.record_loader(q)
+            self._columns_and_values[column_str].clear()
+
+    def _build_query(self, column_str, values_str):
+        return f"INSERT INTO {self._config['database']}.{self._table}({column_str}) VALUES {','.join(values_str)};"
 
     def _build_value(self):
         for k, v in self._config.items():
